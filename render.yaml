@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: among-us-discord-bot
+    runtime: node
+    buildCommand: npm ci && npm run build
+    startCommand: npm --workspace @workspace/api-server run start
+    healthCheckPath: /api/healthz
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DISCORD_BOT_TOKEN
+        sync: false

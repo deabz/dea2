@@ -3,6 +3,7 @@
   "version": "0.0.0",
   "license": "MIT",
   "scripts": {
+    "dev": "npm --workspace @workspace/api-server run dev",
     "build": "npm --workspace @workspace/api-server run build",
     "typecheck": "npm --workspace @workspace/api-server run typecheck"
   },

@@ -28,19 +28,27 @@ const COMMAND_NAMES = [
   "undead",
   "list",
   "join",
+  "leave",
   "mute",
   "unmute",
+  "uptime",
 ] as const;
 type CommandName = (typeof COMMAND_NAMES)[number];
 type VoiceCommand = Exclude<
   CommandName,
-  "help" | "status" | "code" | "dead" | "undead" | "list"
+  "help" | "status" | "code" | "dead" | "undead" | "list" | "uptime"
 >;
 const COMMANDS = new Set<CommandName>(COMMAND_NAMES);
-const VOICE_COMMANDS = new Set<VoiceCommand>(["join", "mute", "unmute"]);
+const VOICE_COMMANDS = new Set<VoiceCommand>([
+  "join",
+  "leave",
+  "mute",
+  "unmute",
+]);
 const storedCodes = new Map<string, string>();
 const deadMembersByGuild = new Map<string, Set<string>>();
 const pendingDeadPlayerUnmutes = new Set<string>();
+const startedAt = Date.now();
 const slashCommands = COMMAND_NAMES.map((name) => {
   const command = new SlashCommandBuilder()
     .setName(name)
@@ -59,9 +67,13 @@ const slashCommands = COMMAND_NAMES.map((name) => {
                   ? "List every player marked dead"
                   : name === "join"
                     ? "Join your current voice channel"
+                    : name === "leave"
+                      ? "Leave this server's voice channel"
                     : name === "mute"
                       ? "Server-mute everyone in your current voice channel"
-                      : "Remove server mutes from everyone in your current voice channel",
+                      : name === "unmute"
+                        ? "Remove server mutes from everyone in your current voice channel"
+                        : "Show how long the bot has been online",
     );
 
   if (name === "code") {
@@ -102,6 +114,22 @@ function setWatchingStatus(client: Client, channelName: string): void {
   });
 }
 
+function formatUptime(): string {
+  const totalSeconds = Math.floor((Date.now() - startedAt) / 1_000);
+  const days = Math.floor(totalSeconds / 86_400);
+  const hours = Math.floor((totalSeconds % 86_400) / 3_600);
+  const minutes = Math.floor((totalSeconds % 3_600) / 60);
+  const seconds = totalSeconds % 60;
+  const parts = [
+    ...(days > 0 ? [`${days}d`] : []),
+    ...(hours > 0 || days > 0 ? [`${hours}h`] : []),
+    ...(minutes > 0 || hours > 0 || days > 0 ? [`${minutes}m`] : []),
+    `${seconds}s`,
+  ];
+
+  return `Bot uptime: **${parts.join(" ")}**.`;
+}
+
 function createHelpEmbed(): EmbedBuilder {
   return new EmbedBuilder()
     .setColor(0x5865f2)
@@ -117,7 +145,11 @@ function createHelpEmbed(): EmbedBuilder {
       {
         name: "/join or .join",
         value:
-          "Joins your current voice channel and stays there for the round.",
+          "Joins your current voice channel, deafened, and stays there for the round.",
+      },
+      {
+        name: "/leave or .leave",
+        value: "Leaves the voice channel in this server.",
       },
       {
         name: "/status or .status",
@@ -152,6 +184,10 @@ function createHelpEmbed(): EmbedBuilder {
         name: "/unmute or .unmute",
         value:
           "Unserver mutes everyone currently in your voice channel so the round can continue.",
+      },
+      {
+        name: "/uptime or .uptime",
+        value: "Shows how long the bot has been online.",
       },
     )
     .setFooter({ text: "Commands affect the voice channel of the person using them." });
@@ -505,7 +541,7 @@ async function connectToVoiceChannel(
     channelId: channel.id,
     guildId: channel.guild.id,
     adapterCreator: channel.guild.voiceAdapterCreator,
-    selfDeaf: false,
+    selfDeaf: true,
   });
 
   try {
@@ -525,6 +561,17 @@ async function connectToVoiceChannel(
   });
 
   return connection;
+}
+
+function leaveVoiceChannel(guildId: string): boolean {
+  const connection = activeConnections.get(guildId);
+  if (!connection) {
+    return false;
+  }
+
+  activeConnections.delete(guildId);
+  connection.destroy();
+  return true;
 }
 
 async function assertVoicePermissions(
@@ -700,6 +747,20 @@ async function handleSlashCommand(
     return;
   }
 
+  if (command === "uptime") {
+    await interaction.reply(formatUptime());
+    return;
+  }
+
+  if (command === "leave") {
+    await interaction.reply(
+      leaveVoiceChannel(interaction.guild.id)
+        ? "Left the voice channel."
+        : "I am not in a voice channel in this server.",
+    );
+    return;
+  }
+
   const member = await interaction.guild.members.fetch(interaction.user.id);
   const channel = member.voice.channel;
   if (command === "status") {
@@ -826,6 +887,20 @@ async function handlePrefixCommand(message: Message): Promise<void> {
     for (const chunk of embedChunks.slice(1)) {
       await message.reply({ embeds: chunk });
     }
+    return;
+  }
+
+  if (command === "uptime") {
+    await message.reply(formatUptime());
+    return;
+  }
+
+  if (command === "leave") {
+    await message.reply(
+      leaveVoiceChannel(message.guild.id)
+        ? "Left the voice channel."
+        : "I am not in a voice channel in this server.",
+    );
     return;
   }
 

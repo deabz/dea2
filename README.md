@@ -8,7 +8,7 @@ voice-channel muting, and dead-player tracking.
 Create a new **Web Service** from this repository. Render will detect
 `render.yaml`; alternatively, use these settings:
 
-- Build command: `npm ci && npm run build`
+- Build command: `npm ci --include=dev && npm run build`
 - Start command: `npm --workspace @workspace/api-server run start`
 - Health-check path: `/api/healthz`
 

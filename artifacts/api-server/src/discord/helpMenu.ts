@@ -5,22 +5,23 @@ import {
   EmbedBuilder,
 } from "discord.js";
 
-export type HelpCategory = "overview" | "voice" | "counter" | "utility";
+export type HelpCategory = "overview" | "amongus" | "voice" | "counter" | "utility";
 
 export function getHelpEmbed(category: HelpCategory = "overview"): EmbedBuilder {
   const embed = new EmbedBuilder();
 
   switch (category) {
+    case "amongus":
     case "voice":
       return embed
         .setColor(0x57f287)
-        .setTitle("🚀 Among Us & Voice Channel Controls")
+        .setTitle("Among Us & Voice Channel Controls")
         .setDescription(
           "Coordinate discussion rounds and gameplay seamlessly in voice channels.\nBoth `/slash` and `.prefix` commands are fully supported.\n"
         )
         .addFields(
           {
-            name: "🔊 Voice Channel Controls",
+            name: "Voice Channel Controls",
             value: [
               "> `/join` • `.join` — Joins your current voice channel (deafened).",
               "> `/leave` • `.leave` — Disconnects from voice and resets bot status.",
@@ -30,7 +31,7 @@ export function getHelpEmbed(category: HelpCategory = "overview"): EmbedBuilder 
             ].join("\n"),
           },
           {
-            name: "💀 Dead Player Tracking",
+            name: "Dead Player Tracking",
             value: [
               "> `/dead <@player>` • `.dead <@player>`",
               "> *Marks player dead & keeps them server-muted in the main VC.*",
@@ -41,7 +42,7 @@ export function getHelpEmbed(category: HelpCategory = "overview"): EmbedBuilder 
             ].join("\n"),
           },
           {
-            name: "🔑 Lobby Codes",
+            name: "Lobby Codes",
             value:
               "> `/code [code]` • `.code [code]`\n> *Saves or recalls the 6-letter lobby code. Standalone uppercase 6-letter codes are automatically detected.*",
           },
@@ -51,13 +52,13 @@ export function getHelpEmbed(category: HelpCategory = "overview"): EmbedBuilder 
     case "counter":
       return embed
         .setColor(0xfee75c)
-        .setTitle("🔢 Automated Slur Counter System")
+        .setTitle("Automated Slur Counter System")
         .setDescription(
           "Real-time automated detection and tracking with persistent per-server statistics.\n"
         )
         .addFields(
           {
-            name: "📊 User Counts & Leaderboards",
+            name: "User Counts & Leaderboards",
             value: [
               "> `/nwordcount [@user]` • `.ncount` • `.nwordcount`",
               "> *Checks slur count for yourself or another user.*",
@@ -66,7 +67,7 @@ export function getHelpEmbed(category: HelpCategory = "overview"): EmbedBuilder 
             ].join("\n"),
           },
           {
-            name: "⚙️ Server Configuration (Manage Server)",
+            name: "Server Configuration (Manage Server)",
             value: [
               "> `/nwordcounter enable` • `.ncounter enable` — Turns counter ON.",
               "> `/nwordcounter disable` • `.ncounter disable` — Turns counter OFF.",
@@ -74,7 +75,7 @@ export function getHelpEmbed(category: HelpCategory = "overview"): EmbedBuilder 
             ].join("\n"),
           },
           {
-            name: "⚡ Automatic Detection",
+            name: "Automatic Detection",
             value:
               "> • Automatically detects slur variations and increments persistent records.\n> • Filters out bots, webhook messages, and duplicates.\n> • Replies with a dynamic reaction message.",
           },
@@ -84,22 +85,22 @@ export function getHelpEmbed(category: HelpCategory = "overview"): EmbedBuilder 
     case "utility":
       return embed
         .setColor(0xeb459e)
-        .setTitle("🛠️ Utility & System Information")
+        .setTitle("Utility & System Information")
         .setDescription("General bot utility, status commands, and helpful tips.\n")
         .addFields(
           {
-            name: "⏱️ Bot Information",
+            name: "Bot Information",
             value: [
               "> `/uptime` • `.uptime` — Shows how long Dea has been running.",
               "> `/help` • `.help` — Displays this interactive command dashboard.",
             ].join("\n"),
           },
           {
-            name: "💡 Quick Tips",
+            name: "Quick Tips",
             value: [
               "> • You can use either `/slash` commands or `.` prefix commands anytime.",
               "> • When in a voice channel, the bot status shows your channel name.",
-              "> • When leaving via `.leave`, status resets to *Waiting for a voice channel*.",
+              "> • When leaving via `.leave`, status resets to Waiting for a voice channel.",
               "> • Click the buttons below to browse categories.",
             ].join("\n"),
           },
@@ -110,25 +111,25 @@ export function getHelpEmbed(category: HelpCategory = "overview"): EmbedBuilder 
     default:
       return embed
         .setColor(0x5865f2)
-        .setTitle("✨ Dea Command Center & Guide")
+        .setTitle("Dea Command Center & Guide")
         .setDescription(
           "Welcome to **Dea**! Here is an organized guide to all features.\nClick the buttons below to browse each category.\n"
         )
         .addFields(
           {
-            name: "🚀 Among Us & Voice Controls",
+            name: "Among Us & Voice Controls",
             value: "> Automatic VC joining, discussion mute/unmute rounds, dead-player tracking, and lobby codes.",
           },
           {
-            name: "🔢 Automated Slur Counter",
+            name: "Automated Slur Counter",
             value: "> Real-time slur detection, persistent per-server counts, leaderboards, and admin settings.",
           },
           {
-            name: "🛠️ Utility & System",
+            name: "Utility & System",
             value: "> Bot uptime, status diagnostics, and interactive guides.",
           },
           {
-            name: "📌 Syntax Conventions",
+            name: "Syntax Conventions",
             value: "> `<required argument>` • `[optional argument]` • `/slash` or `.prefix`",
           },
         )
@@ -137,26 +138,23 @@ export function getHelpEmbed(category: HelpCategory = "overview"): EmbedBuilder 
 }
 
 export function getHelpButtons(currentCategory: HelpCategory = "overview"): ActionRowBuilder<ButtonBuilder> {
+  const isAmongUs = currentCategory === "amongus" || currentCategory === "voice";
   return new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
       .setCustomId("help_overview")
       .setLabel("Overview")
-      .setEmoji("🏠")
       .setStyle(currentCategory === "overview" ? ButtonStyle.Primary : ButtonStyle.Secondary),
     new ButtonBuilder()
-      .setCustomId("help_voice")
-      .setLabel("Voice & Game")
-      .setEmoji("🚀")
-      .setStyle(currentCategory === "voice" ? ButtonStyle.Primary : ButtonStyle.Secondary),
+      .setCustomId("help_amongus")
+      .setLabel("Among Us")
+      .setStyle(isAmongUs ? ButtonStyle.Primary : ButtonStyle.Secondary),
     new ButtonBuilder()
       .setCustomId("help_counter")
       .setLabel("Counter")
-      .setEmoji("🔢")
       .setStyle(currentCategory === "counter" ? ButtonStyle.Primary : ButtonStyle.Secondary),
     new ButtonBuilder()
       .setCustomId("help_utility")
       .setLabel("Utility")
-      .setEmoji("🛠️")
       .setStyle(currentCategory === "utility" ? ButtonStyle.Primary : ButtonStyle.Secondary),
   );
 }

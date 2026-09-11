@@ -19,6 +19,14 @@ import {
   type VoiceConnection,
 } from "@discordjs/voice";
 import { logger } from "../lib/logger";
+import {
+  handleNWordMessage,
+  isNWordCounterEnabled,
+  setNWordCounterEnabled,
+  getUserNWordCount,
+  getNWordLeaderboard,
+  createLeaderboardEmbed,
+} from "./nwordCounter";
 
 const COMMAND_NAMES = [
   "help",
@@ -32,11 +40,23 @@ const COMMAND_NAMES = [
   "mute",
   "unmute",
   "uptime",
+  "nwordcount",
+  "nwordleaderboard",
+  "nwordcounter",
 ] as const;
 type CommandName = (typeof COMMAND_NAMES)[number];
 type VoiceCommand = Exclude<
   CommandName,
-  "help" | "status" | "code" | "dead" | "undead" | "list" | "uptime"
+  | "help"
+  | "status"
+  | "code"
+  | "dead"
+  | "undead"
+  | "list"
+  | "uptime"
+  | "nwordcount"
+  | "nwordleaderboard"
+  | "nwordcounter"
 >;
 const COMMANDS = new Set<CommandName>(COMMAND_NAMES);
 const VOICE_COMMANDS = new Set<VoiceCommand>([
@@ -73,7 +93,13 @@ const slashCommands = COMMAND_NAMES.map((name) => {
                       ? "Server-mute everyone in your current voice channel"
                       : name === "unmute"
                         ? "Remove server mutes from everyone in your current voice channel"
-                        : "Show how long the bot has been online",
+                        : name === "uptime"
+                          ? "Show how long the bot has been online"
+                          : name === "nwordcount"
+                            ? "Check how many times a user has used the N-word"
+                            : name === "nwordleaderboard"
+                              ? "View the server N-word leaderboard"
+                              : "Configure the N-word counter for this server",
     );
 
   if (name === "code") {
@@ -101,6 +127,31 @@ const slashCommands = COMMAND_NAMES.map((name) => {
         .setDescription("Optional player to remove from the dead list")
         .setRequired(false),
     );
+  }
+
+  if (name === "nwordcount") {
+    command.addUserOption((option) =>
+      option
+        .setName("user")
+        .setDescription("Optional user to check (defaults to yourself)")
+        .setRequired(false),
+    );
+  }
+
+  if (name === "nwordcounter") {
+    command
+      .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+      .addStringOption((option) =>
+        option
+          .setName("action")
+          .setDescription("Enable, disable, or check status of the counter")
+          .setRequired(true)
+          .addChoices(
+            { name: "enable", value: "enable" },
+            { name: "disable", value: "disable" },
+            { name: "status", value: "status" },
+          ),
+      );
   }
 
   return command.toJSON();
@@ -189,8 +240,22 @@ function createHelpEmbed(): EmbedBuilder {
         name: "/uptime or .uptime",
         value: "Shows how long the bot has been online.",
       },
+      {
+        name: "/nwordcount [@user] or .nwordcount [@user]",
+        value:
+          "Check how many times a user (or yourself) has used the N-word in this server.",
+      },
+      {
+        name: "/nwordleaderboard or .nwordleaderboard",
+        value: "View the top N-word counts in this server.",
+      },
+      {
+        name: "/nwordcounter <enable|disable|status> or .nwordcounter <enable|disable|status>",
+        value:
+          "Configure or view the N-word counter setting for this server (requires Manage Server permission).",
+      },
     )
-    .setFooter({ text: "Commands affect the voice channel of the person using them." });
+    .setFooter({ text: "Dea Bot Commands" });
 }
 
 function normalizeCode(input: string): string | null {
@@ -752,6 +817,62 @@ async function handleSlashCommand(
     return;
   }
 
+  if (command === "nwordcount") {
+    const targetUser = interaction.options.getUser("user") ?? interaction.user;
+    const count = await getUserNWordCount(interaction.guild.id, targetUser.id);
+    const message =
+      targetUser.id === interaction.user.id
+        ? `You have used the N-word **${count}** time${count === 1 ? "" : "s"} in this server.`
+        : `<@${targetUser.id}> has used the N-word **${count}** time${count === 1 ? "" : "s"} in this server.`;
+    await interaction.reply({ content: message });
+    return;
+  }
+
+  if (command === "nwordleaderboard") {
+    const rows = await getNWordLeaderboard(interaction.guild.id, 10);
+    const embed = createLeaderboardEmbed(interaction.guild.name, rows);
+    await interaction.reply({ embeds: [embed] });
+    return;
+  }
+
+  if (command === "nwordcounter") {
+    const member = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
+    const hasAdminPerm =
+      member?.permissions.has(PermissionFlagsBits.ManageGuild) ||
+      member?.permissions.has(PermissionFlagsBits.Administrator);
+
+    if (!hasAdminPerm) {
+      await interaction.reply({
+        content: "You need the 'Manage Server' permission to configure the N-word counter.",
+        ephemeral: true,
+      });
+      return;
+    }
+
+    const action = interaction.options.getString("action", true).toLowerCase();
+    if (action === "enable") {
+      await setNWordCounterEnabled(interaction.guild.id, true);
+      await interaction.reply({
+        content: "The N-word counter is now **enabled** for this server.",
+      });
+      return;
+    }
+
+    if (action === "disable") {
+      await setNWordCounterEnabled(interaction.guild.id, false);
+      await interaction.reply({
+        content: "The N-word counter is now **disabled** for this server.",
+      });
+      return;
+    }
+
+    const isEnabled = await isNWordCounterEnabled(interaction.guild.id);
+    await interaction.reply({
+      content: `The N-word counter is currently **${isEnabled ? "enabled" : "disabled"}** in this server.`,
+    });
+    return;
+  }
+
   if (command === "leave") {
     await interaction.reply(
       leaveVoiceChannel(interaction.guild.id)
@@ -814,19 +935,50 @@ async function handleSlashCommand(
   }
 }
 
+const PREFIX_ALIASES: Record<string, CommandName> = {
+  ncount: "nwordcount",
+  nleaderboard: "nwordleaderboard",
+  nlb: "nwordleaderboard",
+  ncounter: "nwordcounter",
+};
+
 function getPrefixCommand(content: string): CommandName | null {
   const command = content.trim().split(/\s+/)[0]?.toLowerCase() ?? "";
   if (!command.startsWith(".") || command.length <= 1) {
     return null;
   }
 
-  const name = command.slice(1) as CommandName;
-  return COMMANDS.has(name) ? name : null;
+  const name = command.slice(1);
+  if (COMMANDS.has(name as CommandName)) {
+    return name as CommandName;
+  }
+  if (name in PREFIX_ALIASES) {
+    return PREFIX_ALIASES[name]!;
+  }
+  return null;
 }
 
 async function handlePrefixCommand(message: Message): Promise<void> {
-  if (message.author.bot) {
+  if (message.author.bot || message.webhookId || message.system) {
     return;
+  }
+
+  if (message.client.user && message.author.id === message.client.user.id) {
+    return;
+  }
+
+  if (message.guild) {
+    try {
+      const detected = await handleNWordMessage(message);
+      if (detected) {
+        return;
+      }
+    } catch (error) {
+      logger.error(
+        { err: error, guildId: message.guild.id, messageId: message.id },
+        "Error handling N-word counter detection in message",
+      );
+    }
   }
 
   const command = getPrefixCommand(message.content);
@@ -849,6 +1001,61 @@ async function handlePrefixCommand(message: Message): Promise<void> {
 
   if (!message.guild) {
     await message.reply("These commands can only be used inside a Discord server.");
+    return;
+  }
+
+  if (command === "nwordcount") {
+    const targetUser = message.mentions.users.first() ?? message.author;
+    const count = await getUserNWordCount(message.guild.id, targetUser.id);
+    const response =
+      targetUser.id === message.author.id
+        ? `You have used the N-word **${count}** time${count === 1 ? "" : "s"} in this server.`
+        : `<@${targetUser.id}> has used the N-word **${count}** time${count === 1 ? "" : "s"} in this server.`;
+    await message.reply(response);
+    return;
+  }
+
+  if (command === "nwordleaderboard") {
+    const rows = await getNWordLeaderboard(message.guild.id, 10);
+    const embed = createLeaderboardEmbed(message.guild.name, rows);
+    await message.reply({ embeds: [embed] });
+    return;
+  }
+
+  if (command === "nwordcounter") {
+    const member =
+      message.member ??
+      (await message.guild.members.fetch(message.author.id).catch(() => null));
+    const hasAdminPerm =
+      member?.permissions.has(PermissionFlagsBits.ManageGuild) ||
+      member?.permissions.has(PermissionFlagsBits.Administrator);
+
+    if (!hasAdminPerm) {
+      await message.reply(
+        "You need the 'Manage Server' permission to configure the N-word counter.",
+      );
+      return;
+    }
+
+    const args = message.content.trim().split(/\s+/).slice(1);
+    const subAction = (args[0] ?? "").toLowerCase();
+
+    if (subAction === "enable" || subAction === "on") {
+      await setNWordCounterEnabled(message.guild.id, true);
+      await message.reply("The N-word counter is now **enabled** for this server.");
+      return;
+    }
+
+    if (subAction === "disable" || subAction === "off") {
+      await setNWordCounterEnabled(message.guild.id, false);
+      await message.reply("The N-word counter is now **disabled** for this server.");
+      return;
+    }
+
+    const isEnabled = await isNWordCounterEnabled(message.guild.id);
+    await message.reply(
+      `The N-word counter is currently **${isEnabled ? "enabled" : "disabled"}** in this server. Use \`.nwordcounter enable\` or \`.nwordcounter disable\` to change it.`,
+    );
     return;
   }
 

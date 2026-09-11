@@ -1,6 +1,7 @@
 import app from "./app";
 import { startDiscordBot } from "./discord/bot";
 import { initDatabase } from "./lib/prisma";
+import { syncFromDatabase } from "./discord/nwordCounter";
 import { logger } from "./lib/logger";
 
 const rawPort = process.env["PORT"];
@@ -25,5 +26,6 @@ app.listen(port, async (err) => {
 
   logger.info({ port }, "Server listening");
   await initDatabase();
+  await syncFromDatabase();
   startDiscordBot();
 });

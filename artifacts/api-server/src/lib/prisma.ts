@@ -27,7 +27,7 @@ const dbUrl = resolveDatabaseUrl();
 process.env["DATABASE_URL"] = dbUrl;
 
 export const prisma = new PrismaClient({
-  log: process.env.NODE_ENV === "development" ? ["warn", "error"] : ["error"],
+  log: process.env.NODE_ENV === "development" ? ["warn", "error"] : [],
 });
 
 export async function initDatabase(): Promise<void> {

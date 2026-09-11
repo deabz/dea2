@@ -107,7 +107,7 @@ if (!fs.existsSync(getStorageFilePath())) {
   saveStoreToFile();
 }
 
-async function syncFromDatabase(): Promise<void> {
+export async function syncFromDatabase(): Promise<void> {
   try {
     const records = await prisma.nWordCount.findMany();
     let changed = false;
@@ -129,7 +129,6 @@ async function syncFromDatabase(): Promise<void> {
     // Database may be uninitialized or unavailable; ignore
   }
 }
-void syncFromDatabase();
 
 const processedMessageIds = new Set<string>();
 const MAX_PROCESSED_CACHE = 5000;

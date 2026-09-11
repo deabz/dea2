@@ -7,8 +7,19 @@ import {
 
 export type HelpCategory = "overview" | "amongus" | "voice" | "counter" | "utility";
 
-export function getHelpEmbed(category: HelpCategory = "overview"): EmbedBuilder {
+export function getHelpEmbed(
+  category: HelpCategory = "overview",
+  botAvatarUrl?: string | null,
+): EmbedBuilder {
   const embed = new EmbedBuilder();
+
+  if (botAvatarUrl) {
+    embed.setAuthor({ name: "dea", iconURL: botAvatarUrl });
+    embed.setFooter({ text: "dea", iconURL: botAvatarUrl });
+  } else {
+    embed.setAuthor({ name: "dea" });
+    embed.setFooter({ text: "dea" });
+  }
 
   switch (category) {
     case "amongus":
@@ -46,8 +57,7 @@ export function getHelpEmbed(category: HelpCategory = "overview"): EmbedBuilder 
             value:
               "> `/code [code]` • `.code [code]`\n> *Saves or recalls the 6-letter lobby code. Standalone uppercase 6-letter codes are automatically detected.*",
           },
-        )
-        .setFooter({ text: "Voice commands apply to your current voice channel • Dea Bot" });
+        );
 
     case "counter":
       return embed
@@ -79,8 +89,7 @@ export function getHelpEmbed(category: HelpCategory = "overview"): EmbedBuilder 
             value:
               "> • Automatically detects slur variations and increments persistent records.\n> • Filters out bots, webhook messages, and duplicates.\n> • Replies with a dynamic reaction message.",
           },
-        )
-        .setFooter({ text: "Persistent per-server data • Dea Counter" });
+        );
 
     case "utility":
       return embed
@@ -91,7 +100,7 @@ export function getHelpEmbed(category: HelpCategory = "overview"): EmbedBuilder 
           {
             name: "Bot Information",
             value: [
-              "> `/uptime` • `.uptime` — Shows how long Dea has been running.",
+              "> `/uptime` • `.uptime` — Shows how long dea has been running.",
               "> `/help` • `.help` — Displays this interactive command dashboard.",
             ].join("\n"),
           },
@@ -104,16 +113,15 @@ export function getHelpEmbed(category: HelpCategory = "overview"): EmbedBuilder 
               "> • Click the buttons below to browse categories.",
             ].join("\n"),
           },
-        )
-        .setFooter({ text: "Dea • Multi-purpose Discord Bot" });
+        );
 
     case "overview":
     default:
       return embed
         .setColor(0x5865f2)
-        .setTitle("Dea Command Center & Guide")
+        .setTitle("dea")
         .setDescription(
-          "Welcome to **Dea**! Here is an organized guide to all features.\nClick the buttons below to browse each category.\n"
+          "Welcome to **dea**! Here is an organized guide to all features.\nClick the buttons below to browse each category.\n"
         )
         .addFields(
           {
@@ -132,8 +140,7 @@ export function getHelpEmbed(category: HelpCategory = "overview"): EmbedBuilder 
             name: "Syntax Conventions",
             value: "> `<required argument>` • `[optional argument]` • `/slash` or `.prefix`",
           },
-        )
-        .setFooter({ text: "Click any button below to switch views • Dea Bot" });
+        );
   }
 }
 

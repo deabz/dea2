@@ -170,20 +170,50 @@ function setWatchingStatus(client: Client, channelName: string): void {
   });
 }
 
-function formatUptime(): string {
+function createUptimeEmbed(
+  client: Client,
+  botAvatarUrl?: string | null,
+): EmbedBuilder {
   const totalSeconds = Math.floor((Date.now() - startedAt) / 1_000);
   const days = Math.floor(totalSeconds / 86_400);
   const hours = Math.floor((totalSeconds % 86_400) / 3_600);
   const minutes = Math.floor((totalSeconds % 3_600) / 60);
   const seconds = totalSeconds % 60;
-  const parts = [
-    ...(days > 0 ? [`${days}d`] : []),
-    ...(hours > 0 || days > 0 ? [`${hours}h`] : []),
-    ...(minutes > 0 || hours > 0 || days > 0 ? [`${minutes}m`] : []),
-    `${seconds}s`,
-  ];
 
-  return `Bot uptime: **${parts.join(" ")}**.`;
+  const parts: string[] = [];
+  if (days > 0) parts.push(`${days} day${days === 1 ? "" : "s"}`);
+  if (hours > 0) parts.push(`${hours} hour${hours === 1 ? "" : "s"}`);
+  if (minutes > 0) parts.push(`${minutes} minute${minutes === 1 ? "" : "s"}`);
+  parts.push(`${seconds} second${seconds === 1 ? "" : "s"}`);
+
+  const formattedDuration = parts.join(", ");
+  const startUnix = Math.floor(startedAt / 1_000);
+  const memoryUsedMb = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(1);
+  const ping = client.ws.ping >= 0 ? `${Math.round(client.ws.ping)}ms` : "N/A";
+
+  const embed = new EmbedBuilder()
+    .setColor(0x5865f2)
+    .setTitle("Uptime")
+    .setDescription(
+      `dea has been online for **${formattedDuration}**.\n\nOnline since <t:${startUnix}:F> (<t:${startUnix}:R>)`,
+    )
+    .addFields(
+      { name: "Ping", value: `\`${ping}\``, inline: true },
+      { name: "Memory", value: `\`${memoryUsedMb} MB\``, inline: true },
+      { name: "Servers", value: `\`${client.guilds.cache.size}\``, inline: true },
+    )
+    .setTimestamp();
+
+  if (botAvatarUrl) {
+    embed.setAuthor({ name: "dea", iconURL: botAvatarUrl });
+    embed.setThumbnail(botAvatarUrl);
+    embed.setFooter({ text: "dea", iconURL: botAvatarUrl });
+  } else {
+    embed.setAuthor({ name: "dea" });
+    embed.setFooter({ text: "dea" });
+  }
+
+  return embed;
 }
 
 
@@ -341,7 +371,10 @@ async function clearDeadPlayers(
   return `New round started. Cleared ${count} dead player${count === 1 ? "" : "s"}${formatUnmuteSummary(unmuteResult)}.`;
 }
 
-async function createDeadListEmbeds(guild: Guild): Promise<EmbedBuilder[]> {
+async function createDeadListEmbeds(
+  guild: Guild,
+  botAvatarUrl?: string | null,
+): Promise<EmbedBuilder[]> {
   const deadMemberIds = deadMembersByGuild.get(guild.id);
   const ids = deadMemberIds ? [...deadMemberIds] : [];
   const members = await Promise.all(
@@ -361,8 +394,15 @@ async function createDeadListEmbeds(guild: Guild): Promise<EmbedBuilder[]> {
         ? "Players currently marked dead are shown below."
         : "No players are currently marked dead.",
     )
-    .addFields({ name: "Total dead", value: String(ids.length), inline: true })
-    .setFooter({ text: "Use /undead or .undead when the next round starts." });
+    .addFields({ name: "Total dead", value: String(ids.length), inline: true });
+
+  if (botAvatarUrl) {
+    summaryEmbed.setAuthor({ name: "dea", iconURL: botAvatarUrl });
+    summaryEmbed.setFooter({ text: "dea", iconURL: botAvatarUrl });
+  } else {
+    summaryEmbed.setAuthor({ name: "dea" });
+    summaryEmbed.setFooter({ text: "dea" });
+  }
 
   const playerEmbeds = members.map(({ index, member, memberId }) => {
     const embed = new EmbedBuilder()
@@ -489,7 +529,10 @@ function containsCodeReference(content: string): boolean {
   return /\bcode\b/i.test(content);
 }
 
-function createVoiceStatusEmbed(channel: VoiceBasedChannel): EmbedBuilder {
+function createVoiceStatusEmbed(
+  channel: VoiceBasedChannel,
+  botAvatarUrl?: string | null,
+): EmbedBuilder {
   const members = [...channel.members.values()].sort((left, right) =>
     left.displayName.localeCompare(right.displayName),
   );
@@ -504,15 +547,23 @@ function createVoiceStatusEmbed(channel: VoiceBasedChannel): EmbedBuilder {
           .join("\n")
       : "No one is currently in this voice channel.";
 
-  return new EmbedBuilder()
+  const embed = new EmbedBuilder()
     .setColor(0x57f287)
     .setTitle("Voice Channel Status")
     .setDescription(`**${channel.name}**\n\n${memberList}`)
     .addFields(
       { name: "People in channel", value: String(members.length), inline: true },
       { name: "Server muted", value: String(mutedCount), inline: true },
-    )
-    .setFooter({ text: "Use /mute or /unmute to control the round." });
+    );
+
+  if (botAvatarUrl) {
+    embed.setAuthor({ name: "dea", iconURL: botAvatarUrl });
+    embed.setFooter({ text: "dea", iconURL: botAvatarUrl });
+  } else {
+    embed.setAuthor({ name: "dea" });
+    embed.setFooter({ text: "dea" });
+  }
+  return embed;
 }
 
 async function connectToVoiceChannel(
@@ -700,7 +751,7 @@ async function handleSlashCommand(
 
   if (command === "help") {
     await interaction.reply({
-      embeds: [getHelpEmbed("overview")],
+      embeds: [getHelpEmbed("overview", interaction.client.user?.displayAvatarURL())],
       components: [getHelpButtons("overview")],
     });
     return;
@@ -743,7 +794,7 @@ async function handleSlashCommand(
 
   if (command === "list") {
     const embedChunks = splitEmbeds(
-      await createDeadListEmbeds(interaction.guild),
+      await createDeadListEmbeds(interaction.guild, interaction.client.user?.displayAvatarURL()),
     );
     await interaction.reply({ embeds: embedChunks[0] });
     for (const chunk of embedChunks.slice(1)) {
@@ -753,7 +804,11 @@ async function handleSlashCommand(
   }
 
   if (command === "uptime") {
-    await interaction.reply(formatUptime());
+    const embed = createUptimeEmbed(
+      interaction.client,
+      interaction.client.user?.displayAvatarURL(),
+    );
+    await interaction.reply({ embeds: [embed] });
     return;
   }
 
@@ -770,7 +825,7 @@ async function handleSlashCommand(
 
   if (command === "nwordleaderboard") {
     const rows = await getNWordLeaderboard(interaction.guild.id, 10);
-    const embed = createLeaderboardEmbed(interaction.guild.name, rows);
+    const embed = createLeaderboardEmbed(interaction.guild.name, rows, interaction.client.user?.displayAvatarURL());
     await interaction.reply({ embeds: [embed] });
     return;
   }
@@ -837,7 +892,7 @@ async function handleSlashCommand(
       return;
     }
 
-    await interaction.reply({ embeds: [createVoiceStatusEmbed(channel)] });
+    await interaction.reply({ embeds: [createVoiceStatusEmbed(channel, interaction.client.user?.displayAvatarURL())] });
     return;
   }
 
@@ -940,7 +995,7 @@ async function handlePrefixCommand(message: Message): Promise<void> {
 
   if (command === "help") {
     await message.reply({
-      embeds: [getHelpEmbed("overview")],
+      embeds: [getHelpEmbed("overview", message.client.user?.displayAvatarURL())],
       components: [getHelpButtons("overview")],
     });
     return;
@@ -964,7 +1019,7 @@ async function handlePrefixCommand(message: Message): Promise<void> {
 
   if (command === "nwordleaderboard") {
     const rows = await getNWordLeaderboard(message.guild.id, 10);
-    const embed = createLeaderboardEmbed(message.guild.name, rows);
+    const embed = createLeaderboardEmbed(message.guild.name, rows, message.client.user?.displayAvatarURL());
     await message.reply({ embeds: [embed] });
     return;
   }
@@ -1044,7 +1099,7 @@ async function handlePrefixCommand(message: Message): Promise<void> {
   }
 
   if (command === "list") {
-    const embedChunks = splitEmbeds(await createDeadListEmbeds(message.guild));
+    const embedChunks = splitEmbeds(await createDeadListEmbeds(message.guild, message.client.user?.displayAvatarURL()));
     await message.reply({ embeds: embedChunks[0] });
     for (const chunk of embedChunks.slice(1)) {
       await message.reply({ embeds: chunk });
@@ -1053,7 +1108,11 @@ async function handlePrefixCommand(message: Message): Promise<void> {
   }
 
   if (command === "uptime") {
-    await message.reply(formatUptime());
+    const embed = createUptimeEmbed(
+      message.client,
+      message.client.user?.displayAvatarURL(),
+    );
+    await message.reply({ embeds: [embed] });
     return;
   }
 
@@ -1073,7 +1132,7 @@ async function handlePrefixCommand(message: Message): Promise<void> {
       return;
     }
 
-    await message.reply({ embeds: [createVoiceStatusEmbed(channel)] });
+    await message.reply({ embeds: [createVoiceStatusEmbed(channel, message.client.user?.displayAvatarURL())] });
     return;
   }
 
@@ -1159,7 +1218,7 @@ export function startDiscordBot(): Client | null {
             "",
           ) as HelpCategory;
           await interaction.update({
-            embeds: [getHelpEmbed(category)],
+            embeds: [getHelpEmbed(category, interaction.client.user?.displayAvatarURL())],
             components: [getHelpButtons(category)],
           });
         }

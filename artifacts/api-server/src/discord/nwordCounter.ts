@@ -333,11 +333,20 @@ export async function getNWordLeaderboard(
 export function createLeaderboardEmbed(
   guildName: string,
   rows: readonly { userId: string; count: number }[],
+  botAvatarUrl?: string | null,
 ): EmbedBuilder {
   const embed = new EmbedBuilder()
     .setColor(0x5865f2)
     .setTitle(`N-Word Leaderboard — ${guildName}`)
     .setTimestamp();
+
+  if (botAvatarUrl) {
+    embed.setAuthor({ name: "dea", iconURL: botAvatarUrl });
+    embed.setFooter({ text: "dea", iconURL: botAvatarUrl });
+  } else {
+    embed.setAuthor({ name: "dea" });
+    embed.setFooter({ text: "dea" });
+  }
 
   if (rows.length === 0) {
     embed.setDescription("No N-word detections have been recorded in this server yet.");
@@ -348,7 +357,6 @@ export function createLeaderboardEmbed(
     embed.setDescription(lines.join("\n"));
   }
 
-  embed.setFooter({ text: "Dea Counter System" });
   return embed;
 }
 

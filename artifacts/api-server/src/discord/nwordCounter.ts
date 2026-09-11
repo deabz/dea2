@@ -2,8 +2,38 @@ import { EmbedBuilder, type Message } from "discord.js";
 import { prisma } from "../lib/prisma";
 import { logger } from "../lib/logger";
 
-const NWORD_REGEX =
-  /(?<=^|[^a-zA-Z0-9])n+[i1!l|]+g{2,}(?:[e3]rs?|[a4]s?|[a4]h[s]?|[a4]z|uhs?)(?=[^a-zA-Z0-9]|$)/gi;
+const sep = "[\\s._\\-*~/\\\\]*";
+const N = "[nñ]";
+const I = "[i1!|le3]";
+const G = "[g9q6]";
+const A = "[a4@]";
+const E = "[e3]";
+const O = "[o0]";
+const R = "[r]";
+const GG = `(?:${G}+${sep}${G}+|${G}{2,})`;
+
+const NWORD_REGEX = new RegExp(
+  "(?<=^|[^a-zA-Z0-9])(?:" +
+    // Standard double-g (nigga, nigger, n199a, n i g g a, nigg, niggs, etc.)
+    `${N}+${sep}${I}+${sep}${GG}${sep}(?:${E}+${sep}${R}+s?|${A}+(?:${sep}[szh4]+)*|[u]+${sep}[rh]+s?|${A}+${sep}[z]+|${E}+${sep}[z]+|${I}+${sep}t+s?|s(?=[^a-zA-Z0-9]|$)|(?=[^a-zA-Z0-9]|$))` +
+    "|" +
+    // Single-g (niga, nigar, negar, etc.)
+    `${N}+${sep}${I}+${sep}${G}+${sep}(?:${A}+(?:${sep}[szh4]+)*|${E}+${sep}${R}+s?|${A}+${sep}${R}+s?)` +
+    "|" +
+    // Negro variations (negro, negros, negroes, negroid, negrito, negrita, negress, negr0)
+    `${N}+${sep}${E}+${sep}${G}+${sep}${R}+${sep}(?:${O}+(?:${sep}e?s)?|${O}+${sep}i+d+|i+${sep}t+${sep}[oa]+|e+${sep}s+${sep}s+)` +
+    "|" +
+    // Nga variations (nga, ngas, ngah, ngaz, ng4, ngga, n g a, etc.)
+    `${N}+${sep}${G}+${sep}${A}+(?:${sep}[szh4]+)*` +
+    "|" +
+    // Nignog, nig nog, nig-nog
+    `${N}+${sep}${I}+${sep}${G}+${sep}${N}+${sep}${O}+${sep}${G}+` +
+    "|" +
+    // Niglet, niglets
+    `${N}+${sep}${I}+${sep}${G}+${sep}l+${sep}${E}+${sep}t+s?` +
+    ")(?=[^a-zA-Z0-9]|$)",
+  "gi",
+);
 
 const processedMessageIds = new Set<string>();
 const MAX_PROCESSED_CACHE = 5000;
@@ -19,7 +49,10 @@ function markMessageProcessed(messageId: string): void {
 }
 
 function cleanText(text: string): string {
-  return text.replace(/[\u200B-\u200D\uFEFF]/g, "").normalize("NFKD");
+  return text
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "");
 }
 
 export function countNWordOccurrences(text: string): number {

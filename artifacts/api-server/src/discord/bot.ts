@@ -27,6 +27,11 @@ import {
   getNWordLeaderboard,
   createLeaderboardEmbed,
 } from "./nwordCounter";
+import {
+  getHelpEmbed,
+  getHelpButtons,
+  type HelpCategory,
+} from "./helpMenu";
 
 const COMMAND_NAMES = [
   "help",
@@ -181,82 +186,6 @@ function formatUptime(): string {
   return `Bot uptime: **${parts.join(" ")}**.`;
 }
 
-function createHelpEmbed(): EmbedBuilder {
-  return new EmbedBuilder()
-    .setColor(0x5865f2)
-    .setTitle("Among Us Voice Controls")
-    .setDescription(
-      "Use either slash commands or the matching dot command to control the voice round.",
-    )
-    .addFields(
-      {
-        name: "/help or .help",
-        value: "Shows this command guide.",
-      },
-      {
-        name: "/join or .join",
-        value:
-          "Joins your current voice channel, deafened, and stays there for the round.",
-      },
-      {
-        name: "/leave or .leave",
-        value: "Leaves the voice channel in this server.",
-      },
-      {
-        name: "/status or .status",
-        value:
-          "Shows everyone currently in your voice channel and who is server-muted.",
-      },
-      {
-        name: "/code or .code",
-        value:
-          "Saves a six-letter code, or shows the saved code when no code is provided. A standalone uppercase code is also detected automatically.",
-      },
-      {
-        name: "/dead @player or .dead @player",
-        value:
-          "Marks a player dead and keeps them server-muted in the main voice channel. Moving elsewhere server-unmutes them; returning re-mutes them.",
-      },
-      {
-        name: "/undead or .undead",
-        value:
-          "Clears the dead-player list and server-unmutes those players for a new round. You can also provide one player.",
-      },
-      {
-        name: "/list or .list",
-        value: "Lists every player currently marked dead.",
-      },
-      {
-        name: "/mute or .mute",
-        value:
-          "Server mutes everyone currently in your voice channel for an Among Us discussion.",
-      },
-      {
-        name: "/unmute or .unmute",
-        value:
-          "Unserver mutes everyone currently in your voice channel so the round can continue.",
-      },
-      {
-        name: "/uptime or .uptime",
-        value: "Shows how long the bot has been online.",
-      },
-      {
-        name: "/nwordcount [@user] or .nwordcount [@user]",
-        value:
-          "Check how many times a user (or yourself) has used the N-word in this server.",
-      },
-      {
-        name: "/nwordleaderboard or .nwordleaderboard",
-        value: "View the top N-word counts in this server.",
-      },
-      {
-        name: "/nwordcounter <enable|disable|status> or .nwordcounter <enable|disable|status>",
-        value:
-          "Configure or view the N-word counter setting for this server (requires Manage Server permission).",
-      },
-    )
-    .setFooter({ text: "Dea Bot Commands" });
-}
 
 function normalizeCode(input: string): string | null {
   const code = input.trim().toUpperCase();
@@ -621,6 +550,8 @@ async function connectToVoiceChannel(
   connection.once(VoiceConnectionStatus.Destroyed, () => {
     if (activeConnections.get(channel.guild.id) === connection) {
       activeConnections.delete(channel.guild.id);
+    }
+    if (activeConnections.size === 0) {
       setWatchingStatus(client, "Waiting for a voice channel");
     }
   });
@@ -628,14 +559,20 @@ async function connectToVoiceChannel(
   return connection;
 }
 
-function leaveVoiceChannel(guildId: string): boolean {
+function leaveVoiceChannel(client: Client, guildId: string): boolean {
   const connection = activeConnections.get(guildId);
   if (!connection) {
+    if (activeConnections.size === 0) {
+      setWatchingStatus(client, "Waiting for a voice channel");
+    }
     return false;
   }
 
   activeConnections.delete(guildId);
   connection.destroy();
+  if (activeConnections.size === 0) {
+    setWatchingStatus(client, "Waiting for a voice channel");
+  }
   return true;
 }
 
@@ -762,7 +699,10 @@ async function handleSlashCommand(
   }
 
   if (command === "help") {
-    await interaction.reply({ embeds: [createHelpEmbed()] });
+    await interaction.reply({
+      embeds: [getHelpEmbed("overview")],
+      components: [getHelpButtons("overview")],
+    });
     return;
   }
 
@@ -879,7 +819,7 @@ async function handleSlashCommand(
 
   if (command === "leave") {
     await interaction.reply(
-      leaveVoiceChannel(interaction.guild.id)
+      leaveVoiceChannel(interaction.client, interaction.guild.id)
         ? "Left the voice channel."
         : "I am not in a voice channel in this server.",
     );
@@ -999,7 +939,10 @@ async function handlePrefixCommand(message: Message): Promise<void> {
   }
 
   if (command === "help") {
-    await message.reply({ embeds: [createHelpEmbed()] });
+    await message.reply({
+      embeds: [getHelpEmbed("overview")],
+      components: [getHelpButtons("overview")],
+    });
     return;
   }
 
@@ -1116,7 +1059,7 @@ async function handlePrefixCommand(message: Message): Promise<void> {
 
   if (command === "leave") {
     await message.reply(
-      leaveVoiceChannel(message.guild.id)
+      leaveVoiceChannel(message.client, message.guild.id)
         ? "Left the voice channel."
         : "I am not in a voice channel in this server.",
     );
@@ -1205,15 +1148,37 @@ export function startDiscordBot(): Client | null {
       }),
     );
   });
-  client.on(Events.InteractionCreate, (interaction) => {
-    if (interaction.isChatInputCommand()) {
-      void handleSlashCommand(interaction);
+  client.on(Events.InteractionCreate, async (interaction) => {
+    try {
+      if (interaction.isChatInputCommand()) {
+        await handleSlashCommand(interaction);
+      } else if (interaction.isButton()) {
+        if (interaction.customId.startsWith("help_")) {
+          const category = interaction.customId.replace(
+            "help_",
+            "",
+          ) as HelpCategory;
+          await interaction.update({
+            embeds: [getHelpEmbed(category)],
+            components: [getHelpButtons(category)],
+          });
+        }
+      }
+    } catch (error) {
+      logger.error({ err: error }, "Error handling interaction");
     }
   });
   client.on(Events.MessageCreate, (message) => {
     void handlePrefixCommand(message);
   });
   client.on(Events.VoiceStateUpdate, (oldState, newState) => {
+    if (oldState.member?.id === client.user?.id && !newState.channelId) {
+      activeConnections.delete(oldState.guild.id);
+      if (activeConnections.size === 0) {
+        setWatchingStatus(client, "Waiting for a voice channel");
+      }
+    }
+
     if (!newState.channelId || !newState.member) {
       return;
     }

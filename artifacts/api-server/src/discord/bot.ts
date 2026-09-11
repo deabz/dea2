@@ -851,17 +851,21 @@ async function handleSlashCommand(
 
     const action = interaction.options.getString("action", true).toLowerCase();
     if (action === "enable") {
-      await setNWordCounterEnabled(interaction.guild.id, true);
+      const ok = await setNWordCounterEnabled(interaction.guild.id, true);
       await interaction.reply({
-        content: "The N-word counter is now **enabled** for this server.",
+        content: ok
+          ? "The N-word counter is now **enabled** for this server."
+          : "Failed to update setting due to a database error.",
       });
       return;
     }
 
     if (action === "disable") {
-      await setNWordCounterEnabled(interaction.guild.id, false);
+      const ok = await setNWordCounterEnabled(interaction.guild.id, false);
       await interaction.reply({
-        content: "The N-word counter is now **disabled** for this server.",
+        content: ok
+          ? "The N-word counter is now **disabled** for this server."
+          : "Failed to update setting due to a database error.",
       });
       return;
     }
@@ -1041,14 +1045,22 @@ async function handlePrefixCommand(message: Message): Promise<void> {
     const subAction = (args[0] ?? "").toLowerCase();
 
     if (subAction === "enable" || subAction === "on") {
-      await setNWordCounterEnabled(message.guild.id, true);
-      await message.reply("The N-word counter is now **enabled** for this server.");
+      const ok = await setNWordCounterEnabled(message.guild.id, true);
+      await message.reply(
+        ok
+          ? "The N-word counter is now **enabled** for this server."
+          : "Failed to update setting due to a database error.",
+      );
       return;
     }
 
     if (subAction === "disable" || subAction === "off") {
-      await setNWordCounterEnabled(message.guild.id, false);
-      await message.reply("The N-word counter is now **disabled** for this server.");
+      const ok = await setNWordCounterEnabled(message.guild.id, false);
+      await message.reply(
+        ok
+          ? "The N-word counter is now **disabled** for this server."
+          : "Failed to update setting due to a database error.",
+      );
       return;
     }
 

@@ -86,18 +86,24 @@ export async function isNWordCounterEnabled(guildId: string): Promise<boolean> {
 export async function setNWordCounterEnabled(
   guildId: string,
   enabled: boolean,
-): Promise<void> {
-  await prisma.guildConfig.upsert({
-    where: { guildId },
-    create: {
-      guildId,
-      nwordEnabled: enabled,
-    },
-    update: {
-      nwordEnabled: enabled,
-    },
-  });
-  guildConfigCache.set(guildId, enabled);
+): Promise<boolean> {
+  try {
+    await prisma.guildConfig.upsert({
+      where: { guildId },
+      create: {
+        guildId,
+        nwordEnabled: enabled,
+      },
+      update: {
+        nwordEnabled: enabled,
+      },
+    });
+    guildConfigCache.set(guildId, enabled);
+    return true;
+  } catch (error) {
+    logger.error({ err: error, guildId }, "Failed to update guild config in database");
+    return false;
+  }
 }
 
 export async function getUserNWordCount(

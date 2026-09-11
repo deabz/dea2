@@ -1,11 +1,30 @@
 import { PrismaClient } from "@prisma/client";
+import fs from "node:fs";
 import path from "node:path";
 import { logger } from "./logger";
 
-if (!process.env["DATABASE_URL"]) {
-  const dbPath = path.resolve(process.cwd(), "artifacts/api-server/prisma/dev.db");
-  process.env["DATABASE_URL"] = `file:${dbPath.replace(/\\/g, "/")}`;
+function resolveDatabaseUrl(): string {
+  if (process.env["DATABASE_URL"]) {
+    return process.env["DATABASE_URL"];
+  }
+
+  const cwd = process.cwd();
+  let prismaDir = path.resolve(cwd, "prisma");
+  if (!fs.existsSync(prismaDir)) {
+    const nested = path.resolve(cwd, "artifacts/api-server/prisma");
+    if (fs.existsSync(nested)) {
+      prismaDir = nested;
+    }
+  }
+
+  fs.mkdirSync(prismaDir, { recursive: true });
+  const dbFile = path.resolve(prismaDir, "dev.db");
+  const normalized = dbFile.split(path.sep).join("/");
+  return `file:${normalized}`;
 }
+
+const dbUrl = resolveDatabaseUrl();
+process.env["DATABASE_URL"] = dbUrl;
 
 export const prisma = new PrismaClient({
   log: process.env.NODE_ENV === "development" ? ["warn", "error"] : ["error"],

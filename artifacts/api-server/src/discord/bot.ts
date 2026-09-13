@@ -1197,7 +1197,7 @@ export function startDiscordBot(): Client | null {
     }
     statusInterval = setInterval(() => {
       updateBotPresence(readyClient);
-    }, 2_000);
+    }, 10_000);
 
     logger.info(
       {

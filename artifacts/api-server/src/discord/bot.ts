@@ -7,6 +7,7 @@ import {
   PermissionFlagsBits,
   SlashCommandBuilder,
   type ChatInputCommandInteraction,
+  type ClientPresenceStatus,
   type Guild,
   type GuildMember,
   type Message,
@@ -163,17 +164,10 @@ const slashCommands = COMMAND_NAMES.map((name) => {
 });
 const activeConnections = new Map<string, VoiceConnection>();
 
-function setWatchingStatus(client: Client, channelName: string): void {
-  client.user?.setPresence({
-    status: "idle",
-    activities: [{ name: channelName, type: ActivityType.Watching }],
-  });
-}
+const STATUS_CYCLE: readonly ClientPresenceStatus[] = ["online", "idle", "dnd"];
+let statusCycleIndex = 0;
 
-function createUptimeEmbed(
-  client: Client,
-  botAvatarUrl?: string | null,
-): EmbedBuilder {
+function formatUptime(): string {
   const totalSeconds = Math.floor((Date.now() - startedAt) / 1_000);
   const days = Math.floor(totalSeconds / 86_400);
   const hours = Math.floor((totalSeconds % 86_400) / 3_600);
@@ -186,7 +180,28 @@ function createUptimeEmbed(
   if (minutes > 0) parts.push(`${minutes} minute${minutes === 1 ? "" : "s"}`);
   parts.push(`${seconds} second${seconds === 1 ? "" : "s"}`);
 
-  const formattedDuration = parts.join(", ");
+  return parts.join(", ");
+}
+
+function updateBotPresence(client: Client): void {
+  try {
+    const currentStatus = STATUS_CYCLE[statusCycleIndex % STATUS_CYCLE.length];
+    statusCycleIndex = (statusCycleIndex + 1) % STATUS_CYCLE.length;
+
+    client.user?.setPresence({
+      status: currentStatus,
+      activities: [{ name: formatUptime(), type: ActivityType.Watching }],
+    });
+  } catch (error) {
+    logger.warn({ err: error }, "Failed to update bot presence");
+  }
+}
+
+function createUptimeEmbed(
+  client: Client,
+  botAvatarUrl?: string | null,
+): EmbedBuilder {
+  const formattedDuration = formatUptime();
   const startUnix = Math.floor(startedAt / 1_000);
   const memoryUsedMb = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(1);
   const ping = client.ws.ping >= 0 ? `${Math.round(client.ws.ping)}ms` : "N/A";
@@ -567,7 +582,7 @@ function createVoiceStatusEmbed(
 }
 
 async function connectToVoiceChannel(
-  client: Client,
+  _client: Client,
   channel: VoiceBasedChannel,
 ): Promise<VoiceConnection> {
   if (!("guild" in channel) || !channel.guild.voiceAdapterCreator) {
@@ -576,7 +591,6 @@ async function connectToVoiceChannel(
 
   const currentConnection = activeConnections.get(channel.guild.id);
   if (currentConnection?.joinConfig.channelId === channel.id) {
-    setWatchingStatus(client, channel.name);
     return currentConnection;
   }
 
@@ -597,33 +611,23 @@ async function connectToVoiceChannel(
   }
 
   activeConnections.set(channel.guild.id, connection);
-  setWatchingStatus(client, channel.name);
   connection.once(VoiceConnectionStatus.Destroyed, () => {
     if (activeConnections.get(channel.guild.id) === connection) {
       activeConnections.delete(channel.guild.id);
-    }
-    if (activeConnections.size === 0) {
-      setWatchingStatus(client, "Waiting for a voice channel");
     }
   });
 
   return connection;
 }
 
-function leaveVoiceChannel(client: Client, guildId: string): boolean {
+function leaveVoiceChannel(_client: Client, guildId: string): boolean {
   const connection = activeConnections.get(guildId);
   if (!connection) {
-    if (activeConnections.size === 0) {
-      setWatchingStatus(client, "Waiting for a voice channel");
-    }
     return false;
   }
 
   activeConnections.delete(guildId);
   connection.destroy();
-  if (activeConnections.size === 0) {
-    setWatchingStatus(client, "Waiting for a voice channel");
-  }
   return true;
 }
 
@@ -1184,8 +1188,17 @@ export function startDiscordBot(): Client | null {
     ],
   });
 
+  let statusInterval: NodeJS.Timeout | null = null;
+
   client.once(Events.ClientReady, (readyClient) => {
-    setWatchingStatus(readyClient, "Waiting for a voice channel");
+    updateBotPresence(readyClient);
+    if (statusInterval) {
+      clearInterval(statusInterval);
+    }
+    statusInterval = setInterval(() => {
+      updateBotPresence(readyClient);
+    }, 2_000);
+
     logger.info(
       {
         userTag: readyClient.user.tag,
@@ -1233,9 +1246,6 @@ export function startDiscordBot(): Client | null {
   client.on(Events.VoiceStateUpdate, (oldState, newState) => {
     if (oldState.member?.id === client.user?.id && !newState.channelId) {
       activeConnections.delete(oldState.guild.id);
-      if (activeConnections.size === 0) {
-        setWatchingStatus(client, "Waiting for a voice channel");
-      }
     }
 
     if (!newState.channelId || !newState.member) {
@@ -1280,6 +1290,10 @@ export function startDiscordBot(): Client | null {
   });
 
   const shutdown = () => {
+    if (statusInterval) {
+      clearInterval(statusInterval);
+      statusInterval = null;
+    }
     for (const connection of activeConnections.values()) {
       connection.destroy();
     }

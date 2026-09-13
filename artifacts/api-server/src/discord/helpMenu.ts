@@ -35,7 +35,7 @@ export function getHelpEmbed(
             name: "Voice Channel Controls",
             value: [
               "> `/join` • `.join` — Joins your current voice channel (deafened).",
-              "> `/leave` • `.leave` — Disconnects from voice and resets bot status.",
+              "> `/leave` • `.leave` — Disconnects from voice channel.",
               "> `/status` • `.status` — Lists active members in VC and their mute state.",
               "> `/mute` • `.mute` — Server-mutes everyone in VC for discussions.",
               "> `/unmute` • `.unmute` — Unmutes everyone in VC for gameplay.",
@@ -108,8 +108,7 @@ export function getHelpEmbed(
             name: "Quick Tips",
             value: [
               "> • You can use either `/slash` commands or `.` prefix commands anytime.",
-              "> • When in a voice channel, the bot status shows your channel name.",
-              "> • When leaving via `.leave`, status resets to Waiting for a voice channel.",
+              "> • The bot status displays live uptime and cycles between online, idle, and DND.",
               "> • Click the buttons below to browse categories.",
             ].join("\n"),
           },

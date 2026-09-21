@@ -4,6 +4,7 @@ import {
   Events,
   EmbedBuilder,
   GatewayIntentBits,
+  Partials,
   PermissionFlagsBits,
   SlashCommandBuilder,
   type ChatInputCommandInteraction,
@@ -13,6 +14,16 @@ import {
   type Message,
   type VoiceBasedChannel,
 } from "discord.js";
+import {
+  configureLogs,
+  getLogSettings,
+  ignoreLogTarget,
+  logCommand,
+  logCommandError,
+  registerServerLogger,
+  toggleLogCategory,
+  type LogCategory,
+} from "./serverLogger";
 import {
   entersState,
   joinVoiceChannel,
@@ -49,6 +60,7 @@ const COMMAND_NAMES = [
   "nwordcount",
   "nwordleaderboard",
   "nwordcounter",
+  "logs",
 ] as const;
 type CommandName = (typeof COMMAND_NAMES)[number];
 type VoiceCommand = Exclude<
@@ -157,6 +169,37 @@ const slashCommands = COMMAND_NAMES.map((name) => {
             { name: "disable", value: "disable" },
             { name: "status", value: "status" },
           ),
+      );
+  }
+
+  if (name === "logs") {
+    command
+      .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+      .addSubcommand((subcommand) =>
+        subcommand
+          .setName("setchannel")
+          .setDescription("Set the server logging channel")
+          .addChannelOption((option) => option.setName("channel").setDescription("Logging channel").setRequired(true)),
+      )
+      .addSubcommand((subcommand) =>
+        subcommand
+          .setName("toggle")
+          .setDescription("Toggle a logging category")
+          .addStringOption((option) =>
+            option.setName("category").setDescription("Category").setRequired(true).addChoices(
+              ...(["messages", "members", "voice", "channels", "roles", "server", "commands", "automod"] as const).map((category) => ({ name: category, value: category })),
+            ),
+          ),
+      )
+      .addSubcommand((subcommand) => subcommand.setName("status").setDescription("Show logging settings"))
+      .addSubcommand((subcommand) =>
+        subcommand
+          .setName("ignore")
+          .setDescription("Toggle an ignored channel, role, or user")
+          .addStringOption((option) => option.setName("type").setDescription("Target type").setRequired(true).addChoices(
+            { name: "channel", value: "channel" }, { name: "role", value: "role" }, { name: "user", value: "user" },
+          ))
+          .addStringOption((option) => option.setName("id").setDescription("Target ID").setRequired(true)),
       );
   }
 
@@ -753,6 +796,10 @@ async function handleSlashCommand(
     return;
   }
 
+  if (interaction.guild) {
+    logCommand(interaction.guild, interaction.user.id, command, interaction.options.data.map((option) => `${option.name}=${option.value ?? ""}`).join(", "), interaction.channelId);
+  }
+
   if (command === "help") {
     await interaction.reply({
       embeds: [getHelpEmbed("overview", interaction.client.user?.displayAvatarURL())],
@@ -766,6 +813,30 @@ async function handleSlashCommand(
       content: "These commands can only be used inside a Discord server.",
       ephemeral: true,
     });
+    return;
+  }
+
+  if (command === "logs") {
+    const member = await interaction.guild.members.fetch(interaction.user.id);
+    if (!member.permissions.has(PermissionFlagsBits.ManageGuild) && !member.permissions.has(PermissionFlagsBits.Administrator)) {
+      await interaction.reply({ content: "You need the Manage Server permission to configure logging.", ephemeral: true });
+      return;
+    }
+    const subcommand = interaction.options.getSubcommand();
+    if (subcommand === "setchannel") {
+      const channel = interaction.options.getChannel("channel", true);
+      await configureLogs(interaction.guild.id, { channelId: channel.id });
+      await interaction.reply(`Server logs will be sent to <#${channel.id}>.`);
+    } else if (subcommand === "toggle") {
+      const settings = await toggleLogCategory(interaction.guild.id, interaction.options.getString("category", true) as LogCategory);
+      await interaction.reply(`Logging category toggled. Enabled: ${Object.entries(settings.enabled).filter(([, enabled]) => enabled).map(([category]) => category).join(", ") || "none"}.`);
+    } else if (subcommand === "status") {
+      const settings = await getLogSettings(interaction.guild.id);
+      await interaction.reply({ content: `Channel: ${settings.channelId ? `<#${settings.channelId}>` : `default (${process.env.LOG_CHANNEL_ID ?? "1014172742305714236"})`}\nEnabled: ${Object.entries(settings.enabled).filter(([, enabled]) => enabled).map(([category]) => category).join(", ") || "none"}\nIgnored channels: ${settings.ignoredChannels.length}\nIgnored roles: ${settings.ignoredRoles.length}\nIgnored users: ${settings.ignoredUsers.length}`, ephemeral: true });
+    } else {
+      const settings = await ignoreLogTarget(interaction.guild.id, interaction.options.getString("type", true) as "channel" | "role" | "user", interaction.options.getString("id", true));
+      await interaction.reply(`Ignore list updated. Channels: ${settings.ignoredChannels.length}, roles: ${settings.ignoredRoles.length}, users: ${settings.ignoredUsers.length}.`);
+    }
     return;
   }
 
@@ -993,8 +1064,13 @@ async function handlePrefixCommand(message: Message): Promise<void> {
       } else if (containsCodeReference(message.content)) {
         await message.reply(showSavedCode(message.guild.id));
       }
+
     }
     return;
+  }
+
+  if (message.guild) {
+    logCommand(message.guild, message.author.id, command, message.content.trim().split(/\s+/).slice(1).join(" "), message.channelId, true);
   }
 
   if (command === "help") {
@@ -1184,11 +1260,30 @@ export function startDiscordBot(): Client | null {
     intents: [
       GatewayIntentBits.Guilds,
       GatewayIntentBits.GuildMembers,
+      GatewayIntentBits.GuildModeration,
+      GatewayIntentBits.GuildExpressions,
+      GatewayIntentBits.GuildIntegrations,
+      GatewayIntentBits.GuildWebhooks,
+      GatewayIntentBits.GuildInvites,
       GatewayIntentBits.GuildVoiceStates,
       GatewayIntentBits.GuildMessages,
+      GatewayIntentBits.GuildMessageReactions,
       GatewayIntentBits.MessageContent,
+      GatewayIntentBits.AutoModerationConfiguration,
+      GatewayIntentBits.AutoModerationExecution,
+      GatewayIntentBits.GuildScheduledEvents,
+    ],
+    partials: [
+      Partials.Message,
+      Partials.Channel,
+      Partials.Reaction,
+      Partials.GuildMember,
+      Partials.User,
+      Partials.ThreadMember,
+      Partials.GuildScheduledEvent,
     ],
   });
+  registerServerLogger(client);
 
   let statusInterval: NodeJS.Timeout | null = null;
 
@@ -1240,10 +1335,16 @@ export function startDiscordBot(): Client | null {
       }
     } catch (error) {
       logger.error({ err: error }, "Error handling interaction");
+      if (interaction.isChatInputCommand() && interaction.guild) {
+        logCommandError(interaction.guild, interaction.user.id, interaction.commandName, error);
+      }
     }
   });
   client.on(Events.MessageCreate, (message) => {
-    void handlePrefixCommand(message);
+    void handlePrefixCommand(message).catch((error) => {
+      logger.error({ err: error }, "Error handling prefix command");
+      if (message.guild) logCommandError(message.guild, message.author.id, getPrefixCommand(message.content) ?? "unknown", error);
+    });
   });
   client.on(Events.VoiceStateUpdate, (oldState, newState) => {
     if (oldState.member?.id === client.user?.id && !newState.channelId) {

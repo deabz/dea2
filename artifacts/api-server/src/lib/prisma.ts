@@ -68,6 +68,19 @@ export async function initDatabase(): Promise<void> {
       );
     `);
 
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "ServerLogConfig" (
+        "guildId" TEXT NOT NULL PRIMARY KEY,
+        "channelId" TEXT,
+        "enabled" TEXT NOT NULL DEFAULT '{"messages":true,"members":true,"voice":true,"channels":true,"roles":true,"server":true,"commands":true,"automod":true}',
+        "ignoredChannels" TEXT NOT NULL DEFAULT '[]',
+        "ignoredRoles" TEXT NOT NULL DEFAULT '[]',
+        "ignoredUsers" TEXT NOT NULL DEFAULT '[]',
+        "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
     logger.info("Database initialized successfully");
   } catch (error) {
     logger.error({ err: error }, "Failed to initialize database tables");

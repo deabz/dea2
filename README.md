@@ -20,6 +20,10 @@ Set these environment variables in Render:
 
 Render supplies `PORT` automatically. Do not set it yourself.
 
+The bot must run on an always-on Render instance. Free web services can
+spin down after inactivity, which disconnects a Discord gateway bot; use a
+paid web service or an always-on background worker for reliable uptime.
+
 For local development, install Node.js 22+ and npm, then run:
 
 ```sh

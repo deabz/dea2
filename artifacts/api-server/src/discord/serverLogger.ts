@@ -31,13 +31,22 @@ type LogSettings = {
 
 type QueueItem = { guildId: string; embed: EmbedBuilder; file?: { attachment: Buffer; name: string } };
 
-const DEFAULT_CHANNEL_ID = "1014172742305714236";
+const DEFAULT_CHANNEL_ID = "1183841843100795030";
 const COLORS = { delete: 0xed4245, create: 0x57f287, update: 0xfee75c, info: 0x5865f2, command: 0x9b59b6 };
 const CATEGORIES: LogCategory[] = ["messages", "members", "voice", "channels", "roles", "server", "commands", "automod"];
 const queue: QueueItem[] = [];
 let draining = false;
 const settingsCache = new Map<string, LogSettings>();
-const snapshots = new Map<string, Message>();
+type MessageSnapshot = {
+  id: string;
+  guildId: string;
+  channelId: string;
+  authorId: string;
+  authorTag: string;
+  content: string;
+  attachments: string;
+};
+const snapshots = new Map<string, MessageSnapshot>();
 
 const defaultSettings = (): LogSettings => ({
   channelId: null,
@@ -53,7 +62,27 @@ function truncate(value: unknown, max: number): string {
 }
 
 function idText(value: string | null | undefined): string {
-  return value ? `<#${value}> (${value})` : "Unknown";
+  return value ? `<#${value}> (${value})` : "Unavailable";
+}
+
+function snapshotMessage(message: Message): MessageSnapshot | null {
+  if (!message.guild) return null;
+  return {
+    id: message.id,
+    guildId: message.guild.id,
+    channelId: message.channelId,
+    authorId: message.author?.id ?? "Unavailable",
+    authorTag: message.author?.tag ?? "Unavailable",
+    content: message.content || "No text content",
+    attachments: [...message.attachments.values()]
+      .map((attachment) => `${attachment.name}: ${attachment.url}`)
+      .join("\n") || "None",
+  };
+}
+
+function rememberMessage(message: Message): void {
+  const snapshot = snapshotMessage(message);
+  if (snapshot) snapshots.set(message.id, snapshot);
 }
 
 async function getSettings(guildId: string): Promise<LogSettings> {
@@ -116,14 +145,14 @@ async function auditActor(guild: Guild, type: AuditLogEvent, targetId?: string):
   try {
     const logs = await guild.fetchAuditLogs({ type, limit: 6 });
     const entry = logs.entries.find((item) => Date.now() - item.createdTimestamp < 8_000 && (!targetId || (item.target as { id?: string } | null)?.id === targetId));
-    return entry?.executor ? `${entry.executor.tag} (${entry.executor.id})` : "Unknown";
+    return entry?.executor ? `${entry.executor.tag} (${entry.executor.id})` : "Discord did not provide an actor";
   } catch {
-    return "Unknown";
+    return "Discord did not provide an actor";
   }
 }
 
 function embed(guild: Guild, title: string, color: number, details: Array<[string, string]>, target?: string): EmbedBuilder {
-  const fields = details.map(([name, value]) => ({ name: truncate(name, 256), value: truncate(value || "content not cached", 1024), inline: true }));
+  const fields = details.map(([name, value]) => ({ name: truncate(name, 256), value: truncate(value || "No additional data", 1024), inline: true }));
   return new EmbedBuilder()
     .setTitle(title)
     .setColor(color)
@@ -188,7 +217,7 @@ export function logCommandError(guild: Guild, userId: string, command: string, e
 }
 
 function messageContent(message: Message): string {
-  return message.content || "content not cached";
+  return message.content || "No text content";
 }
 
 function attachmentDetails(message: Message): string {
@@ -204,15 +233,31 @@ export function registerServerLogger(client: Client): void {
   };
 
   safe(Events.MessageDelete, async (message: Message) => {
-    const full = message.partial ? await message.fetch().catch(() => message) : message;
-    snapshots.set(full.id, full);
-    const actor = full.guild ? await auditActor(full.guild, AuditLogEvent.MessageDelete, full.author?.id) : "Unknown";
-    if (full.guild) enqueue(full.guild, "messages", embed(full.guild, "Message deleted", COLORS.delete, [["Who", actor], ["Author", full.author ? `${full.author.tag} (${full.author.id})` : "Unknown"], ["Channel", idText(full.channelId)], ["Content", messageContent(full)], ["Attachments", attachmentDetails(full) ]]), undefined, full);
+    const full = message.partial ? await message.fetch().catch(() => null) : message;
+    const snapshot = (full && snapshotMessage(full)) ?? snapshots.get(message.id);
+    const guild = full?.guild ?? (snapshot ? globalClient?.guilds.cache.get(snapshot.guildId) : undefined);
+    if (guild && snapshot) {
+      const auditedActor = await auditActor(guild, AuditLogEvent.MessageDelete, snapshot.authorId);
+      const actor = auditedActor === "Discord did not provide an actor"
+        ? `${snapshot.authorTag} (${snapshot.authorId}) (self-delete or unavailable)`
+        : auditedActor;
+      enqueue(guild, "messages", embed(guild, "Message deleted", COLORS.delete, [
+        ["Who", actor], ["Author", `${snapshot.authorTag} (${snapshot.authorId})`],
+        ["Channel", idText(snapshot.channelId)], ["Content", snapshot.content], ["Attachments", snapshot.attachments],
+      ]));
+      snapshots.delete(message.id);
+    }
   });
   safe(Events.MessageUpdate, async (oldMessage: Message, newMessage: Message) => {
     if (!newMessage.guild) return;
-    const before = oldMessage.partial ? "content not cached" : messageContent(oldMessage);
-    enqueue(newMessage.guild, "messages", embed(newMessage.guild, "Message updated", COLORS.update, [["Who", newMessage.author ? `${newMessage.author.tag} (${newMessage.author.id})` : "Unknown"], ["Channel", idText(newMessage.channelId)], ["Before", before], ["After", messageContent(newMessage)], ["Attachments", attachmentDetails(newMessage)]]), undefined, newMessage);
+    const before = oldMessage.partial ? snapshots.get(oldMessage.id)?.content : messageContent(oldMessage);
+    const fetched = newMessage.partial ? await newMessage.fetch().catch(() => newMessage) : newMessage;
+    enqueue(newMessage.guild, "messages", embed(newMessage.guild, "Message updated", COLORS.update, [
+      ["Who", fetched.author ? `${fetched.author.tag} (${fetched.author.id})` : "Unavailable"],
+      ["Channel", idText(fetched.channelId)], ["Before", before ?? "No previous snapshot available"],
+      ["After", messageContent(fetched)], ["Attachments", attachmentDetails(fetched)],
+    ]), undefined, fetched);
+    rememberMessage(fetched);
   });
   safe(Events.MessageBulkDelete, async (messages: any) => {
     const first = messages.first?.() as Message | undefined;
@@ -227,13 +272,16 @@ export function registerServerLogger(client: Client): void {
     if (message.guild) enqueue(message.guild, "messages", embed(message.guild, "Reaction removed", COLORS.delete, [["Who", `${user.tag} (${user.id})`], ["Emoji", reaction.emoji.toString()], ["Message", message.id], ["Channel", idText(message.channelId)]]), undefined, message);
   });
   safe(Events.MessageReactionRemoveAll, async (message: Message) => { if (message.guild) enqueue(message.guild, "messages", embed(message.guild, "All reactions removed", COLORS.delete, [["Who", await auditActor(message.guild, AuditLogEvent.MessagePin)], ["Message", message.id], ["Channel", idText(message.channelId)]])); });
-  safe(Events.MessageReactionRemoveEmoji, async (reaction: any) => { const message = reaction.message as Message; if (message.guild) enqueue(message.guild, "messages", embed(message.guild, "Reaction emoji removed", COLORS.delete, [["Who", "Unknown"], ["Emoji", reaction.emoji.toString()], ["Message", message.id]])); });
+  safe(Events.MessageReactionRemoveEmoji, async (reaction: any) => { const message = reaction.message as Message; if (message.guild) enqueue(message.guild, "messages", embed(message.guild, "Reaction emoji removed", COLORS.delete, [["Who", "Discord did not include the actor in this event"], ["Emoji", reaction.emoji.toString()], ["Message", message.id]])); });
   safe(Events.ChannelPinsUpdate, async (channel: any) => { if (channel.guild) enqueue(channel.guild, "messages", embed(channel.guild, "Channel pins updated", COLORS.update, [["Who", await auditActor(channel.guild, AuditLogEvent.MessagePin)], ["Channel", idText(channel.id)]])); });
+  safe(Events.MessageCreate, async (message: Message) => {
+    if (message.guild) rememberMessage(message);
+  });
 
-  safe(Events.GuildMemberAdd, async (member: GuildMember) => enqueue(member.guild, "members", embed(member.guild, "Member joined", COLORS.create, [["Who", `${member.user.tag} (${member.id})`], ["Account age", `<t:${Math.floor(member.user.createdTimestamp / 1000)}:R>`], ["Invite", "Unknown (Discord does not always expose the used invite)"]])));
+  safe(Events.GuildMemberAdd, async (member: GuildMember) => enqueue(member.guild, "members", embed(member.guild, "Member joined", COLORS.create, [["Who", `${member.user.tag} (${member.id})`], ["Account age", `<t:${Math.floor(member.user.createdTimestamp / 1000)}:R>`], ["Invite", "Discord did not expose the used invite"]])));
   safe(Events.GuildMemberRemove, async (member: GuildMember) => enqueue(member.guild, "members", embed(member.guild, "Member left", COLORS.delete, [["Who", `${member.user.tag} (${member.id})`], ["Actor", await auditActor(member.guild, AuditLogEvent.MemberKick, member.id)]])));
-  safe(Events.GuildBanAdd, async (ban: any) => enqueue(ban.guild, "members", embed(ban.guild, "Member banned", COLORS.delete, [["Who", `${ban.user.tag} (${ban.user.id})`], ["Actor", await auditActor(ban.guild, AuditLogEvent.MemberBanAdd, ban.user.id)], ["Reason", ban.reason ?? "Unknown"]])));
-  safe(Events.GuildBanRemove, async (ban: any) => enqueue(ban.guild, "members", embed(ban.guild, "Member unbanned", COLORS.create, [["Who", `${ban.user.tag} (${ban.user.id})`], ["Actor", await auditActor(ban.guild, AuditLogEvent.MemberBanRemove, ban.user.id)], ["Reason", ban.reason ?? "Unknown"]])));
+  safe(Events.GuildBanAdd, async (ban: any) => enqueue(ban.guild, "members", embed(ban.guild, "Member banned", COLORS.delete, [["Who", `${ban.user.tag} (${ban.user.id})`], ["Actor", await auditActor(ban.guild, AuditLogEvent.MemberBanAdd, ban.user.id)], ["Reason", ban.reason ?? "No reason provided"]])));
+  safe(Events.GuildBanRemove, async (ban: any) => enqueue(ban.guild, "members", embed(ban.guild, "Member unbanned", COLORS.create, [["Who", `${ban.user.tag} (${ban.user.id})`], ["Actor", await auditActor(ban.guild, AuditLogEvent.MemberBanRemove, ban.user.id)], ["Reason", ban.reason ?? "No reason provided"]])));
   safe(Events.GuildMemberUpdate, async (oldMember: GuildMember, member: GuildMember) => {
     const changes: Array<[string, string]> = [];
     if (oldMember.nickname !== member.nickname) changes.push(["Nickname", `${oldMember.nickname ?? "none"} → ${member.nickname ?? "none"}`]);
@@ -275,6 +323,6 @@ export function registerServerLogger(client: Client): void {
   for (const [event, category, title, color] of generic) safe(event, async (item: any) => {
     const guild = item?.guild ?? (item?.guildId ? globalClient?.guilds.cache.get(item.guildId) : undefined);
     if (!guild) return;
-    enqueue(guild, category, embed(guild, title, color, [["Actor", await auditActor(guild, AuditLogEvent.ChannelUpdate, item?.id)], ["Target", item?.name ?? item?.id ?? "Unknown"], ["Details", JSON.stringify(item?.changes ?? item?.options ?? "content not cached")]]));
+    enqueue(guild, category, embed(guild, title, color, [["Actor", await auditActor(guild, AuditLogEvent.ChannelUpdate, item?.id)], ["Target", item?.name ?? item?.id ?? "Event target unavailable"], ["Details", JSON.stringify(item?.changes ?? item?.options ?? "No additional event data")]]));
   });
 }

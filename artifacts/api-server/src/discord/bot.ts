@@ -832,7 +832,7 @@ async function handleSlashCommand(
       await interaction.reply(`Logging category toggled. Enabled: ${Object.entries(settings.enabled).filter(([, enabled]) => enabled).map(([category]) => category).join(", ") || "none"}.`);
     } else if (subcommand === "status") {
       const settings = await getLogSettings(interaction.guild.id);
-      await interaction.reply({ content: `Channel: ${settings.channelId ? `<#${settings.channelId}>` : `default (${process.env.LOG_CHANNEL_ID ?? "1014172742305714236"})`}\nEnabled: ${Object.entries(settings.enabled).filter(([, enabled]) => enabled).map(([category]) => category).join(", ") || "none"}\nIgnored channels: ${settings.ignoredChannels.length}\nIgnored roles: ${settings.ignoredRoles.length}\nIgnored users: ${settings.ignoredUsers.length}`, ephemeral: true });
+      await interaction.reply({ content: `Channel: ${settings.channelId ? `<#${settings.channelId}>` : `default (${process.env.LOG_CHANNEL_ID ?? "1183841843100795030"})`}\nEnabled: ${Object.entries(settings.enabled).filter(([, enabled]) => enabled).map(([category]) => category).join(", ") || "none"}\nIgnored channels: ${settings.ignoredChannels.length}\nIgnored roles: ${settings.ignoredRoles.length}\nIgnored users: ${settings.ignoredUsers.length}`, ephemeral: true });
     } else {
       const settings = await ignoreLogTarget(interaction.guild.id, interaction.options.getString("type", true) as "channel" | "role" | "user", interaction.options.getString("id", true));
       await interaction.reply(`Ignore list updated. Channels: ${settings.ignoredChannels.length}, roles: ${settings.ignoredRoles.length}, users: ${settings.ignoredUsers.length}.`);
@@ -1041,6 +1041,11 @@ async function handlePrefixCommand(message: Message): Promise<void> {
     return;
   }
 
+  const command = getPrefixCommand(message.content);
+  if (command && message.guild) {
+    logCommand(message.guild, message.author.id, command, message.content.trim().split(/\s+/).slice(1).join(" "), message.channelId, true);
+  }
+
   if (message.guild) {
     try {
       const detected = await handleNWordMessage(message);
@@ -1055,7 +1060,6 @@ async function handlePrefixCommand(message: Message): Promise<void> {
     }
   }
 
-  const command = getPrefixCommand(message.content);
   if (!command) {
     if (message.guild) {
       const automaticCode = detectAutomaticCode(message.content);
@@ -1067,10 +1071,6 @@ async function handlePrefixCommand(message: Message): Promise<void> {
 
     }
     return;
-  }
-
-  if (message.guild) {
-    logCommand(message.guild, message.author.id, command, message.content.trim().split(/\s+/).slice(1).join(" "), message.channelId, true);
   }
 
   if (command === "help") {

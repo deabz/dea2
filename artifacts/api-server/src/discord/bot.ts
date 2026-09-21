@@ -1178,6 +1178,8 @@ export function startDiscordBot(): Client | null {
     return null;
   }
 
+  logger.info("Starting Discord bot login");
+
   const client = new Client({
     intents: [
       GatewayIntentBits.Guilds,
@@ -1283,6 +1285,12 @@ export function startDiscordBot(): Client | null {
   });
   client.on(Events.Error, (error) => {
     logger.error({ err: error }, "Discord client error");
+  });
+  client.on(Events.Warn, (warning) => {
+    logger.warn({ warning }, "Discord client warning");
+  });
+  client.on(Events.Debug, (message) => {
+    logger.debug({ message }, "Discord client debug");
   });
 
   void client.login(token).catch((error: unknown) => {

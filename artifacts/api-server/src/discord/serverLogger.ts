@@ -45,6 +45,7 @@ type MessageSnapshot = {
   authorTag: string;
   content: string;
   attachments: string;
+  imageUrl: string | null;
 };
 const snapshots = new Map<string, MessageSnapshot>();
 
@@ -65,6 +66,13 @@ function idText(value: string | null | undefined): string {
   return value ? `<#${value}> (${value})` : "Unavailable";
 }
 
+function imageUrlFromMessage(message: Message): string | null {
+  return [...message.attachments.values()].find((attachment) =>
+    attachment.contentType?.startsWith("image/") ||
+    /\.(?:avif|gif|jpe?g|png|webp)(?:$|[?#])/i.test(attachment.name ?? attachment.url),
+  )?.url ?? null;
+}
+
 function snapshotMessage(message: Message): MessageSnapshot | null {
   if (!message.guild) return null;
   return {
@@ -77,6 +85,7 @@ function snapshotMessage(message: Message): MessageSnapshot | null {
     attachments: [...message.attachments.values()]
       .map((attachment) => `${attachment.name}: ${attachment.url}`)
       .join("\n") || "None",
+    imageUrl: imageUrlFromMessage(message),
   };
 }
 
@@ -151,14 +160,16 @@ async function auditActor(guild: Guild, type: AuditLogEvent, targetId?: string):
   }
 }
 
-function embed(guild: Guild, title: string, color: number, details: Array<[string, string]>, target?: string): EmbedBuilder {
+function embed(guild: Guild, title: string, color: number, details: Array<[string, string]>, target?: string, imageUrl?: string | null): EmbedBuilder {
   const fields = details.map(([name, value]) => ({ name: truncate(name, 256), value: truncate(value || "No additional data", 1024), inline: true }));
-  return new EmbedBuilder()
+  const result = new EmbedBuilder()
     .setTitle(title)
     .setColor(color)
     .addFields(fields)
     .setFooter({ text: `Guild ${guild.id}${target ? ` • Target ${target}` : ""}` })
     .setTimestamp();
+  if (imageUrl) result.setImage(imageUrl);
+  return result;
 }
 
 function ignored(settings: LogSettings, category: LogCategory, message?: Message): boolean {
@@ -244,7 +255,7 @@ export function registerServerLogger(client: Client): void {
       enqueue(guild, "messages", embed(guild, "Message deleted", COLORS.delete, [
         ["Who", actor], ["Author", `${snapshot.authorTag} (${snapshot.authorId})`],
         ["Channel", idText(snapshot.channelId)], ["Content", snapshot.content], ["Attachments", snapshot.attachments],
-      ]));
+      ], undefined, snapshot.imageUrl));
       snapshots.delete(message.id);
     }
   });
@@ -256,7 +267,7 @@ export function registerServerLogger(client: Client): void {
       ["Who", fetched.author ? `${fetched.author.tag} (${fetched.author.id})` : "Unavailable"],
       ["Channel", idText(fetched.channelId)], ["Before", before ?? "No previous snapshot available"],
       ["After", messageContent(fetched)], ["Attachments", attachmentDetails(fetched)],
-    ]), undefined, fetched);
+    ], undefined, imageUrlFromMessage(fetched)), undefined, fetched);
     rememberMessage(fetched);
   });
   safe(Events.MessageBulkDelete, async (messages: any) => {
